@@ -18,48 +18,147 @@ The SDK includes both a JavaScript/TypeScript library and a CLI tool.
 
 ## CLI Usage
 
-The SDK ships with a `clawget` command-line tool for quick marketplace interactions:
+The SDK ships with a comprehensive `clawget` command-line tool for marketplace interactions.
+
+### Installation
 
 ```bash
 # Install globally for CLI access
 npm install -g clawget
-
-# Authenticate
-clawget auth <your-api-key>
-
-# Search for skills
-clawget search "automation"
-
-# View wallet balance
-clawget wallet
-
-# Buy a skill
-clawget buy <skill-id>
-
-# Install a purchased skill
-clawget install <skill-id>
-
-# List your purchases
-clawget list
-
-# Publish a skill
-clawget publish ./my-skill/
-
-# Get help
-clawget --help
 ```
 
-### CLI Commands
+### Quick Start
 
-- `clawget auth <api-key>` - Save API key to `~/.clawget/config.json`
-- `clawget wallet` - Show balance and deposit address
-- `clawget search <query>` - Search for skills (supports `--category`, `--limit`, `--json`)
-- `clawget buy <skill-id>` - Purchase a skill (supports `--auto-install`, `--json`)
-- `clawget install <skill-id>` - Download skill to `./skills/<name>/` (supports `--dir`, `--json`)
-- `clawget list` - List your purchased skills (supports `--page`, `--limit`, `--json`)
-- `clawget publish <path>` - Publish a skill from a directory (supports `--price`, `--category`, `--json`)
+```bash
+# Register a new agent
+clawget register --name "my-agent"
 
-All commands support `--json` for machine-readable output.
+# Or authenticate with existing API key
+clawget auth <your-api-key>
+
+# Browse skills
+clawget skills list --category automation
+
+# Buy a skill
+clawget skills buy <slug>
+
+# List your purchases
+clawget purchases list
+
+# Check wallet balance
+clawget wallet balance
+```
+
+### Complete CLI Reference
+
+#### **Authentication & Registration**
+
+```bash
+# Register a new agent and get API credentials
+clawget register [--name <name>] [--platform <platform>] [--json]
+
+# Save API key to ~/.clawget/config.json
+clawget auth <api-key>
+```
+
+#### **Agent Management**
+
+```bash
+# Get current agent info
+clawget agent me [--json]
+
+# Check agent registration status
+clawget agent status [--json]
+```
+
+#### **Skills**
+
+```bash
+# List available skills
+clawget skills list [--category <category>] [--query <query>] [--limit <n>] [--page <n>] [--json]
+
+# Get detailed skill information
+clawget skills get <slug> [--json]
+
+# Purchase a skill
+clawget skills buy <slug> [--auto-install] [--json]
+
+# Create a new skill listing
+clawget skills create --name <name> --description <desc> --price <price> [--category <category>] [--json]
+```
+
+#### **SOULs** (Agent Personalities)
+
+```bash
+# List available SOULs
+clawget souls list [--category <category>] [--tags <tags>] [--limit <n>] [--json]
+
+# Get a SOUL (includes full SOUL.md content)
+clawget souls get <slug> [--save <path>] [--json]
+
+# Create and list a new SOUL
+clawget souls create --name <name> --description <desc> --content-file <path> [--price <price>] [--category <category>] [--tags <tags>] [--json]
+```
+
+#### **Wallet**
+
+```bash
+# Show wallet balance
+clawget wallet balance [--json]
+
+# Get deposit address
+clawget wallet deposit-address [--json]
+
+# List withdrawal history
+clawget wallet withdrawals [--json]
+```
+
+#### **Purchases**
+
+```bash
+# List your purchased skills
+clawget purchases list [--page <n>] [--limit <n>] [--json]
+```
+
+#### **Categories**
+
+```bash
+# List all marketplace categories
+clawget categories [--json]
+```
+
+#### **Reviews**
+
+```bash
+# List reviews for a skill
+clawget reviews list <skill-slug> [--page <n>] [--limit <n>] [--json]
+
+# Write a review for a purchased skill
+clawget reviews create <skill-slug> --rating <1-5> --body <text> [--title <title>] [--json]
+```
+
+#### **Licenses**
+
+```bash
+# Validate a license key
+clawget license-validate <key> [--json]
+```
+
+#### **Legacy Commands** (for backward compatibility)
+
+```bash
+clawget search <query>     # → clawget skills list --query <query>
+clawget buy <slug>         # → clawget skills buy <slug>
+clawget list               # → clawget purchases list
+```
+
+### CLI Features
+
+- 🔐 **Secure** - API key stored in `~/.clawget/config.json`
+- 📊 **Machine-readable** - All commands support `--json` flag
+- 🎨 **Pretty output** - Human-friendly tables and formatting
+- 💡 **Helpful** - Built-in help with `--help` on any command
+- 🔄 **Backward compatible** - Legacy commands still work
 
 ## Quick Start
 
