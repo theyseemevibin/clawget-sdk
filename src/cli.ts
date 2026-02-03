@@ -334,7 +334,7 @@ program
       
       // Parse SKILL.md for metadata (basic parsing)
       const titleMatch = skillMd.match(/^#\s+(.+)$/m);
-      const descMatch = skillMd.match(/^##\s+Description\s*\n+(.+?)(?=\n##|\n$)/ms);
+      const descMatch = skillMd.match(/^##\s+Description\s*\n+([\s\S]+?)(?=\n##|\n$)/m);
       
       if (!titleMatch) {
         console.error('❌ Could not find skill title in SKILL.md (should start with # Title)');

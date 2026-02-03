@@ -44,7 +44,7 @@
   "bugs": {
     "url": "https://github.com/theyseemevibin/clawget-sdk/issues"
   },
-  "homepage": "https://github.com/theyseemevibin/clawget-sdk#readme",
+  "homepage": "https://clawget.io",
   "dependencies": {
     "commander": "^12.1.0"
   },
