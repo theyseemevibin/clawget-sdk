@@ -70,6 +70,15 @@ export interface BuySkillResponse {
   installedPath?: string;
 }
 
+export interface DownloadSkillResponse {
+  packageUrl: string;
+  licenseKey: string;
+  version?: string;
+  expiresAt: string | null;
+  activations: number;
+  maxActivations: number;
+}
+
 export interface CreateSkillOptions {
   name: string;
   description: string;
@@ -155,6 +164,17 @@ export interface CreateSoulResponse {
   tags: string[];
   author: string;
   createdAt: string;
+}
+
+export interface BuySoulResponse {
+  success: boolean;
+  purchaseId: string;
+  soulId: string;
+  soulSlug: string;
+  licenseKey: string;
+  status: string;
+  message: string;
+  price: string;
 }
 
 export interface ListSoulsOptions {
@@ -378,8 +398,20 @@ export class Clawget {
      * Get a single SOUL by slug (includes full content)
      */
     get: async (slug: string): Promise<Soul> => {
-      const response = await this.request<{ soul: Soul }>(`/souls/${slug}`);
-      return response.soul;
+      const response = await this.request<Soul>(`/v1/souls/${slug}`);
+      return response;
+    },
+
+    /**
+     * Purchase a SOUL
+     */
+    buy: async (soulSlug: string): Promise<BuySoulResponse> => {
+      const response = await this.request<BuySoulResponse>('/v1/souls/buy', {
+        method: 'POST',
+        body: JSON.stringify({ soulSlug })
+      });
+
+      return response;
     },
 
     /**
@@ -451,6 +483,18 @@ export class Clawget {
     },
 
     /**
+     * Download a purchased skill
+     * Returns the download URL and license information
+     */
+    download: async (skillId: string): Promise<DownloadSkillResponse> => {
+      const response = await this.request<DownloadSkillResponse>(
+        `/skills/${skillId}/download`
+      );
+
+      return response;
+    },
+
+    /**
      * Get a single skill by ID or slug
      */
     get: async (idOrSlug: string): Promise<SkillDetails> => {
@@ -514,6 +558,108 @@ export class Clawget {
       });
 
       return response;
+    },
+
+    /**
+     * Activate a license on a device
+     * @param licenseKey - The license key to activate
+     * @param deviceId - Unique device identifier
+     * @param deviceInfo - Optional device metadata
+     */
+    activate: async (
+      licenseKey: string,
+      deviceId: string,
+      deviceInfo?: {
+        hostname?: string;
+        platform?: string;
+        arch?: string;
+        version?: string;
+      }
+    ): Promise<{
+      success: boolean;
+      message: string;
+      alreadyActivated: boolean;
+      skill: { id: string; title: string; slug: string };
+      activation: {
+        deviceId: string;
+        activatedAt: string;
+        lastUsedAt?: string;
+        currentActivations?: number;
+        maxActivations?: number;
+      };
+    }> => {
+      const response = await fetch(`${this.baseUrl}/licenses/activate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-license-key': licenseKey,
+        },
+        body: JSON.stringify({
+          deviceId,
+          deviceInfo,
+        }),
+      });
+
+      const data: any = await response.json();
+
+      if (!response.ok) {
+        throw new ClawgetError(
+          data.error || 'Activation failed',
+          response.status,
+          data
+        );
+      }
+
+      return data as {
+        success: boolean;
+        message: string;
+        alreadyActivated: boolean;
+        skill: { id: string; title: string; slug: string };
+        activation: {
+          deviceId: string;
+          activatedAt: string;
+          lastUsedAt?: string;
+          currentActivations?: number;
+          maxActivations?: number;
+        };
+      };
+    },
+
+    /**
+     * Upload skill package file
+     * Requires authentication with seller permissions
+     */
+    uploadPackage: async (listingId: string, packageFile: File): Promise<{ success: boolean; url: string; size: number; filename: string }> => {
+      const formData = new FormData();
+      formData.append('package', packageFile);
+      formData.append('listingId', listingId);
+      
+      const url = `${this.baseUrl}/skills/upload`;
+      const headers: Record<string, string> = {
+        'x-api-key': this.apiKey
+      };
+
+      if (this.agentId) {
+        headers['x-agent-id'] = this.agentId;
+      }
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+
+      const data: any = await response.json();
+
+      if (!response.ok) {
+        throw new ClawgetError(
+          data.error || 'Upload failed',
+          response.status,
+          data
+        );
+      }
+
+      return data;
     }
   };
 

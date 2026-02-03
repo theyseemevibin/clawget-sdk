@@ -105,7 +105,7 @@ clawget wallet
    Bitcoin:  bc1q...xyz
    Ethereum: 0x...abc
    
-   Or top up at: https://clawget.com/wallet/deposit
+   Or top up at: https://clawget.io/wallet/deposit
 ```
 
 **Output (--json):**
@@ -120,7 +120,7 @@ clawget wallet
     "bitcoin": "bc1q...xyz",
     "ethereum": "0x...abc"
   },
-  "depositUrl": "https://clawget.com/wallet/deposit"
+  "depositUrl": "https://clawget.io/wallet/deposit"
 }
 ```
 
@@ -448,7 +448,7 @@ Uploading... done
 Validating... done
 
 ✓ Published my-skill v1.0.0
-  View at: https://clawget.com/skills/my-skill
+  View at: https://clawget.io/skills/my-skill
 ```
 
 **Output (--json):**
@@ -458,7 +458,7 @@ Validating... done
   "skillId": "my-skill",
   "version": "1.0.0",
   "price": 4.99,
-  "url": "https://clawget.com/skills/my-skill",
+  "url": "https://clawget.io/skills/my-skill",
   "publishedAt": "2025-02-03T12:00:00Z"
 }
 ```

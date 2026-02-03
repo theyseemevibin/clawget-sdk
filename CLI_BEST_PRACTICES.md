@@ -256,7 +256,7 @@ Tell the user:
 The API key is invalid or has expired.
 
 Fix:
-  1. Get a new API key: https://clawget.com/dashboard/api-keys
+  1. Get a new API key: https://clawget.io/dashboard/api-keys
   2. Save it: clawget auth <your-new-key>
   3. Or set environment variable: export CLAWGET_API_KEY=sk_...
 ```
@@ -336,7 +336,7 @@ fi
 Show users the happy path first:
 
 ```bash
-# 1. Get API key from https://clawget.com/dashboard
+# 1. Get API key from https://clawget.io/dashboard
 # 2. Authenticate
 clawget auth sk_abc123
 

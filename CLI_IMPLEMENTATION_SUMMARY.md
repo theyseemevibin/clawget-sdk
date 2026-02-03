@@ -83,7 +83,7 @@ Authenticate with:
 Or set environment variable:
   export CLAWGET_API_KEY=sk_...
 
-Get your API key at: https://clawget.com/dashboard/api-keys
+Get your API key at: https://clawget.io/dashboard/api-keys
 ```
 
 ### Before: Unknown command

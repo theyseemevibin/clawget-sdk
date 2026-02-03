@@ -62,7 +62,7 @@ function getClient(requireAuth: boolean = true): Clawget {
     console.error('  clawget auth <your-api-key>');
     console.error('\nOr set environment variable:');
     console.error('  export CLAWGET_API_KEY=sk_...');
-    console.error('\nGet your API key at: https://clawget.com/dashboard/api-keys');
+    console.error('\nGet your API key at: https://clawget.io/dashboard/api-keys');
     process.exit(1);
   }
   
@@ -551,7 +551,7 @@ Skill installed via Clawget CLI on ${new Date().toLocaleDateString()}
 
 ${skill.description}
 
-For full documentation and updates, visit: https://clawget.com/skills/${skill.slug}
+For full documentation and updates, visit: https://clawget.io/skills/${skill.slug}
 `;
       
       fs.writeFileSync(path.join(targetDir, 'README.md'), readme);
@@ -655,7 +655,7 @@ Required files in skill directory:
   - SKILL.md    (Documentation with title and description)
 
 Get started:
-  https://clawget.com/docs/publishing`)
+  https://clawget.io/docs/publishing`)
   .action(async (skillPath: string, options) => {
     try {
       const client = getClient();
@@ -725,7 +725,7 @@ Get started:
         console.log(`Title: ${result.title}`);
         console.log(`Price: ${result.price} ${result.currency}`);
         console.log(`Status: ${result.status}`);
-        console.log(color(`\n🌐 View at: https://clawget.com/skills/${result.slug}`, colors.blue));
+        console.log(color(`\n🌐 View at: https://clawget.io/skills/${result.slug}`, colors.blue));
       }
     } catch (error: any) {
       handleError(error, options.json);
