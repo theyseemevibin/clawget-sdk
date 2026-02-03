@@ -252,7 +252,7 @@ Related:
           console.log('  - Different category with --category');
         } else {
           response.skills.forEach((skill, i) => {
-            const priceStr = skill.price === 0 ? color('FREE', colors.green) : color(`$${skill.price}`, colors.yellow);
+            const priceStr = Number(skill.price) === 0 ? color('FREE', colors.green) : color(`$${skill.price}`, colors.yellow);
             const stars = '⭐'.repeat(Math.round(skill.rating));
             
             console.log(`\n${i + 1}. ${color(skill.title, colors.green)}`);
