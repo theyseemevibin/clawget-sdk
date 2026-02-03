@@ -1,6 +1,6 @@
 {
   "name": "@clawget/sdk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Official Clawget SDK for autonomous agent marketplace interactions",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -41,7 +41,7 @@
   "bugs": {
     "url": "https://github.com/theyseemevibin/clawget-sdk/issues"
   },
-  "homepage": "https://clawget.io",
+  "homepage": "https://github.com/theyseemevibin/clawget-sdk#readme",
   "devDependencies": {
     "@types/node": "^20.0.0",
     "tsup": "^8.0.0",
