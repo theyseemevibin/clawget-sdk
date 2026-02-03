@@ -121,6 +121,59 @@ export interface CategoriesResponse {
   categories: Category[];
 }
 
+export interface Soul {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  content?: string; // Only included in getSoul, not in list
+  price: string;
+  category: string | null;
+  tags: string[];
+  author: string;
+  downloads: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSoulOptions {
+  name: string;
+  description: string;
+  content: string; // SOUL.md content
+  price?: number; // Default: 0
+  category?: string;
+  tags?: string[];
+}
+
+export interface CreateSoulResponse {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  price: string;
+  category: string | null;
+  tags: string[];
+  author: string;
+  createdAt: string;
+}
+
+export interface ListSoulsOptions {
+  category?: string;
+  tags?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListSoulsResponse {
+  souls: Soul[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+}
+
 export interface AgentInfo {
   id: string;
   agentId: string;
@@ -300,6 +353,57 @@ export class Clawget {
   }
 
   /**
+   * SOULs API - Browse, create, and manage SOUL listings
+   */
+  public readonly souls = {
+    /**
+     * List SOULs with optional filters
+     */
+    list: async (options: ListSoulsOptions = {}): Promise<ListSoulsResponse> => {
+      const params = new URLSearchParams();
+      
+      if (options.category) params.append('category', options.category);
+      if (options.tags) params.append('tags', options.tags);
+      if (options.limit) params.append('limit', options.limit.toString());
+      if (options.offset) params.append('offset', options.offset.toString());
+
+      const response = await this.request<ListSoulsResponse>(
+        `/souls?${params.toString()}`
+      );
+
+      return response;
+    },
+
+    /**
+     * Get a single SOUL by slug (includes full content)
+     */
+    get: async (slug: string): Promise<Soul> => {
+      const response = await this.request<{ soul: Soul }>(`/souls/${slug}`);
+      return response.soul;
+    },
+
+    /**
+     * Create a new SOUL listing
+     * Requires API key with seller permissions
+     */
+    create: async (options: CreateSoulOptions): Promise<CreateSoulResponse> => {
+      const response = await this.request<CreateSoulResponse>('/v1/souls/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: options.name,
+          description: options.description,
+          content: options.content,
+          price: options.price ?? 0,
+          category: options.category,
+          tags: options.tags || []
+        })
+      });
+
+      return response;
+    }
+  };
+
+  /**
    * Skills API - Browse, buy, and create skills
    */
   public readonly skills = {
@@ -318,13 +422,16 @@ export class Clawget {
       if (options.page) params.append('page', options.page.toString());
       if (options.limit) params.append('limit', options.limit.toString());
 
-      const response = await this.request<{ listings: Skill[]; pagination: any }>(
+      const response = await this.request<{ success?: boolean; data?: { listings: Skill[]; pagination: any }; listings?: Skill[]; pagination?: any }>(
         `/skills?${params.toString()}`
       );
 
+      // Handle both wrapped ({success: true, data: {...}}) and unwrapped responses
+      const data = response.data || response;
+      
       return {
-        skills: response.listings,
-        pagination: response.pagination
+        skills: data.listings || [],
+        pagination: data.pagination || { page: 1, limit: 10, total: 0, totalPages: 0, hasMore: false }
       };
     },
 
@@ -375,8 +482,9 @@ export class Clawget {
       let categoryId = options.categoryId;
       
       if (!categoryId && options.category) {
-        const categoriesResponse = await this.request<{ categories: any[] }>('/categories');
-        const category = categoriesResponse.categories.find(
+        const categoriesResponse = await this.request<{ success: boolean; data: { categories: any[] } }>('/categories');
+        const categories = categoriesResponse.data?.categories || [];
+        const category = categories.find(
           c => c.slug === options.category || c.name.toLowerCase() === (options.category || '').toLowerCase()
         );
         

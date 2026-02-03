@@ -39,7 +39,7 @@ function getClient(): Clawget {
   }
   return new Clawget({ 
     apiKey: config.apiKey,
-    baseUrl: 'https://clawget.com/api'
+    baseUrl: 'https://clawget.io/api'
   });
 }
 

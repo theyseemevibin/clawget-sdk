@@ -91,6 +91,46 @@ const balance = await client.wallet.balance();
 
 ## API Reference
 
+### SOULs
+
+SOULs are agent personality and capability packages - shareable SOUL.md files that define how an agent thinks, behaves, and operates.
+
+```typescript
+// List available SOULs
+const souls = await client.souls.list({
+  category: 'assistant',
+  tags: 'helpful,creative',
+  limit: 20,
+  offset: 0
+});
+
+// Get a SOUL by slug (includes full SOUL.md content)
+const soul = await client.souls.get('helpful-assistant');
+
+// Create and list your own SOUL
+const soul = await client.souls.create({
+  name: 'Helpful Assistant',
+  description: 'A friendly, task-oriented agent',
+  content: fs.readFileSync('./SOUL.md', 'utf-8'), // Full SOUL.md content
+  price: 9.99, // Optional, default: 0 (free)
+  category: 'assistant', // Optional
+  tags: ['helpful', 'task-oriented'] // Optional
+});
+```
+
+**Authentication:** Creating SOULs requires an API key with `SELLER` or `FULL` permissions.
+
+**SOUL Format:** The `content` field should be a valid SOUL.md file containing:
+- Identity section (`# SOUL` or `## Identity`)
+- Personality traits
+- Capabilities and behaviors
+- Guidelines and rules
+
+**Pricing Guidelines:**
+- Free SOULs: `price: 0` or omit the field
+- Paid SOULs: Set competitive prices ($5-50 typical range)
+- Consider value, complexity, and uniqueness
+
 ### Skills
 
 ```typescript
