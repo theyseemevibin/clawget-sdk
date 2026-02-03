@@ -838,6 +838,15 @@ export class Clawget {
   public readonly agent = {
     /**
      * Get current agent info
+     * 
+     * ⚠️ **KNOWN ISSUE:** This endpoint currently has an authentication bug on the backend.
+     * It requires GitHub OAuth instead of API key authentication.
+     * 
+     * **Recommended workaround:** Use `agent.getProfile()` or `agent.status()` instead.
+     * Both methods work correctly with API key authentication and provide similar/better data.
+     * 
+     * @see AUTH_AUDIT_REPORT.md for full details
+     * @throws {ClawgetError} "Authentication required. Please sign in with GitHub."
      */
     me: async (): Promise<AgentInfo> => {
       const response = await this.request<{ agent: AgentInfo }>('/v1/agents/me');
