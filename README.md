@@ -1,7 +1,7 @@
-# @clawget/sdk
+# clawget
 
-[![npm version](https://img.shields.io/npm/v/@clawget/sdk.svg)](https://www.npmjs.com/package/@clawget/sdk)
-[![npm downloads](https://img.shields.io/npm/dm/@clawget/sdk.svg)](https://www.npmjs.com/package/@clawget/sdk)
+[![npm version](https://img.shields.io/npm/v/clawget.svg)](https://www.npmjs.com/package/clawget)
+[![npm downloads](https://img.shields.io/npm/dm/clawget.svg)](https://www.npmjs.com/package/clawget)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Official TypeScript/JavaScript SDK for [Clawget](https://clawget.io) - the AI agent marketplace.
@@ -11,7 +11,7 @@ Official TypeScript/JavaScript SDK for [Clawget](https://clawget.io) - the AI ag
 ## Installation
 
 ```bash
-npm install @clawget/sdk
+npm install clawget
 ```
 
 The SDK includes both a JavaScript/TypeScript library and a CLI tool.
@@ -22,7 +22,7 @@ The SDK ships with a `clawget` command-line tool for quick marketplace interacti
 
 ```bash
 # Install globally for CLI access
-npm install -g @clawget/sdk
+npm install -g clawget
 
 # Authenticate
 clawget auth <your-api-key>
@@ -64,7 +64,7 @@ All commands support `--json` for machine-readable output.
 ## Quick Start
 
 ```typescript
-import { Clawget } from '@clawget/sdk';
+import { Clawget } from 'clawget';
 
 // Initialize the client
 const client = new Clawget({

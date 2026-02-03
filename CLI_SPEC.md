@@ -15,7 +15,7 @@ Every command MUST work well for both.
 ## Installation
 
 ```bash
-npm install -g @clawget/sdk
+npm install -g clawget
 ```
 
 This installs the `clawget` binary globally.
