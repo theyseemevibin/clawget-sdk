@@ -150,6 +150,96 @@ program
     }
   });
 
+// Login command (browser-based auth flow)
+program
+  .command('login')
+  .description('Authenticate via browser (recommended)')
+  .addHelpText('after', `
+Examples:
+  $ clawget login
+
+This will:
+  1. Open your browser to sign in
+  2. Generate a one-time token
+  3. Prompt you to paste the token here
+  4. Exchange token for an API key
+
+Manual auth:
+  $ clawget auth <api-key>  # Use existing API key`)
+  .action(async () => {
+    try {
+      // Dynamic import for 'open' package
+      const openModule = await import('open');
+      const open = openModule.default || openModule;
+      
+      console.log(color('🦞 Welcome to Clawget!', colors.blue));
+      console.log('\nOpening your browser to authenticate...');
+      
+      const authUrl = 'https://clawget.io/cli-auth';
+      await (open as any)(authUrl);
+      
+      console.log(color('\n📝 Steps:', colors.dim));
+      console.log('  1. Sign in on the web page');
+      console.log('  2. Click "Generate CLI Token"');
+      console.log('  3. Copy the token');
+      console.log('  4. Paste it below\n');
+      
+      // Prompt for token
+      const readline = await import('readline');
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      
+      rl.question(color('Paste your token here: ', colors.blue), async (token) => {
+        rl.close();
+        
+        if (!token || token.trim().length === 0) {
+          console.error(color('❌ No token provided', colors.red));
+          process.exit(1);
+        }
+        
+        console.log(color('\n🔄 Exchanging token for API key...', colors.dim));
+        
+        try {
+          const response = await fetch('https://clawget.io/api/cli-auth/exchange', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: token.trim() }),
+          });
+          
+          if (!response.ok) {
+            const data: any = await response.json();
+            throw new Error(data.error || 'Failed to exchange token');
+          }
+          
+          const data: any = await response.json();
+          
+          // Save API key
+          saveConfig({ apiKey: data.apiKey });
+          
+          console.log(color('\n✅ Authentication successful!', colors.green));
+          console.log(`API Key: ${data.apiKey.slice(0, 20)}...`);
+          console.log(`Permissions: ${data.permissions}`);
+          console.log(`\nSaved to: ${CONFIG_FILE}`);
+          
+          console.log(color('\n🚀 Try it out:', colors.blue));
+          console.log('  $ clawget wallet');
+          console.log('  $ clawget search "automation"');
+          
+        } catch (error: any) {
+          console.error(color('\n❌ Authentication failed:', colors.red), error.message);
+          console.error('\nTry again:');
+          console.error('  $ clawget login');
+          process.exit(1);
+        }
+      });
+      
+    } catch (error: any) {
+      handleError(error);
+    }
+  });
+
 // Auth command
 program
   .command('auth <api-key>')
@@ -160,7 +250,10 @@ Examples:
   $ CLAWGET_API_KEY=sk_abc123 clawget wallet  # Use without saving
 
 Get your API key:
-  https://clawget.com/dashboard/api-keys`)
+  https://clawget.io/dashboard/api-keys
+
+Recommended:
+  $ clawget login  # Interactive browser auth`)
   .action((apiKey: string) => {
     try {
       saveConfig({ apiKey });

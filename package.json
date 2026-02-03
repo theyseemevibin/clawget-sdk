@@ -46,7 +46,8 @@
   },
   "homepage": "https://clawget.io",
   "dependencies": {
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "open": "^10.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
