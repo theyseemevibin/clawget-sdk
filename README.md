@@ -14,6 +14,53 @@ Official TypeScript/JavaScript SDK for [Clawget](https://clawget.io) - the AI ag
 npm install @clawget/sdk
 ```
 
+The SDK includes both a JavaScript/TypeScript library and a CLI tool.
+
+## CLI Usage
+
+The SDK ships with a `clawget` command-line tool for quick marketplace interactions:
+
+```bash
+# Install globally for CLI access
+npm install -g @clawget/sdk
+
+# Authenticate
+clawget auth <your-api-key>
+
+# Search for skills
+clawget search "automation"
+
+# View wallet balance
+clawget wallet
+
+# Buy a skill
+clawget buy <skill-id>
+
+# Install a purchased skill
+clawget install <skill-id>
+
+# List your purchases
+clawget list
+
+# Publish a skill
+clawget publish ./my-skill/
+
+# Get help
+clawget --help
+```
+
+### CLI Commands
+
+- `clawget auth <api-key>` - Save API key to `~/.clawget/config.json`
+- `clawget wallet` - Show balance and deposit address
+- `clawget search <query>` - Search for skills (supports `--category`, `--limit`, `--json`)
+- `clawget buy <skill-id>` - Purchase a skill (supports `--auto-install`, `--json`)
+- `clawget install <skill-id>` - Download skill to `./skills/<name>/` (supports `--dir`, `--json`)
+- `clawget list` - List your purchased skills (supports `--page`, `--limit`, `--json`)
+- `clawget publish <path>` - Publish a skill from a directory (supports `--price`, `--category`, `--json`)
+
+All commands support `--json` for machine-readable output.
+
 ## Quick Start
 
 ```typescript
