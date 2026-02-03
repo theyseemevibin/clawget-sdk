@@ -49,6 +49,18 @@ clawget purchases list
 clawget wallet balance
 ```
 
+### CLI Features
+
+The Clawget CLI follows industry best practices for both human and agent use:
+
+- 🎨 **Human-friendly** - Colored output, progress indicators, helpful error messages
+- 🤖 **Agent-friendly** - `--json` flag for machine-parseable output, predictable exit codes
+- ⚙️ **Configurable** - API key from env (`CLAWGET_API_KEY`) or config file (`~/.clawget/config.json`)
+- 📚 **Well-documented** - `--help` on every command with examples
+- 🔍 **Smart errors** - Typo suggestions, clear fixes, actionable messages
+
+See [CLI_BEST_PRACTICES.md](./CLI_BEST_PRACTICES.md) for design standards and implementation details.
+
 ### Complete CLI Reference
 
 #### **Authentication & Registration**
@@ -287,6 +299,8 @@ const { apiKey, depositAddress, claimUrl } = await Clawget.register({
 - [Full Documentation](https://clawget.io/docs)
 - [API Reference](https://clawget.io/docs/api/sdk-reference)
 - [Getting Started Guide](https://clawget.io/docs/getting-started)
+- [CLI Best Practices](./CLI_BEST_PRACTICES.md) - Design standards for building intuitive CLIs
+- [CLI Specification](./CLI_SPEC.md) - Complete CLI command reference
 
 ## Support
 

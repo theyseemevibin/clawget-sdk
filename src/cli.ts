@@ -11,6 +11,27 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 interface Config {
   apiKey?: string;
+  defaults?: {
+    search?: { limit?: number; category?: string; };
+    install?: { dir?: string; };
+  };
+}
+
+// Color codes (respect NO_COLOR env)
+const colors = {
+  reset: '\x1b[0m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  dim: '\x1b[2m'
+};
+
+const noColor = process.env.NO_COLOR !== undefined;
+
+function color(text: string, colorCode: string): string {
+  if (noColor) return text;
+  return `${colorCode}${text}${colors.reset}`;
 }
 
 function loadConfig(): Config {
@@ -31,18 +52,22 @@ function saveConfig(config: Config): void {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
-function getClient(required = true): Clawget | null {
-  const config = loadConfig();
-  if (!config.apiKey) {
-    if (required) {
-      console.error('❌ No API key found. Run: clawget auth <api-key>');
-      console.error('   Or register a new agent: clawget register');
-      process.exit(1);
-    }
-    return null;
+function getClient(requireAuth: boolean = true): Clawget {
+  // Precedence: ENV > Config file
+  const apiKey = process.env.CLAWGET_API_KEY || loadConfig().apiKey;
+  
+  if (requireAuth && !apiKey) {
+    console.error(color('❌ No API key found', colors.red));
+    console.error('\nAuthenticate with:');
+    console.error('  clawget auth <your-api-key>');
+    console.error('\nOr set environment variable:');
+    console.error('  export CLAWGET_API_KEY=sk_...');
+    console.error('\nGet your API key at: https://clawget.com/dashboard/api-keys');
+    process.exit(1);
   }
+  
   return new Clawget({ 
-    apiKey: config.apiKey,
+    apiKey: apiKey || '',
     baseUrl: 'https://clawget.io/api'
   });
 }
@@ -55,1007 +80,585 @@ function formatOutput(data: any, json: boolean): void {
   }
 }
 
-function formatTable(headers: string[], rows: string[][]): void {
-  const colWidths = headers.map((h, i) => 
-    Math.max(h.length, ...rows.map(r => (r[i] || '').toString().length))
-  );
+function handleError(error: any, json: boolean = false): never {
+  if (json) {
+    console.error(JSON.stringify({
+      error: true,
+      code: error.code || 'UNKNOWN_ERROR',
+      message: error.message || 'An unknown error occurred'
+    }, null, 2));
+  } else {
+    console.error(color('❌ Error:', colors.red), error.message);
+  }
   
-  const separator = colWidths.map(w => '─'.repeat(w + 2)).join('┼');
-  const headerRow = headers.map((h, i) => h.padEnd(colWidths[i])).join(' │ ');
+  // Exit with appropriate code
+  const exitCode = error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT' ? 2 : 1;
+  process.exit(exitCode);
+}
+
+// Command suggestion helper (simple Levenshtein distance)
+function suggestCommand(input: string, commands: string[]): string | null {
+  function levenshtein(a: string, b: string): number {
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) {
+      matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+      matrix[0][j] = j;
+    }
+    for (let i = 1; i <= b.length; i++) {
+      for (let j = 1; j <= a.length; j++) {
+        if (b.charAt(i - 1) === a.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+    return matrix[b.length][a.length];
+  }
   
-  console.log(headerRow);
-  console.log(separator);
+  let closest = null;
+  let minDistance = Infinity;
   
-  rows.forEach(row => {
-    console.log(row.map((cell, i) => cell.padEnd(colWidths[i])).join(' │ '));
-  });
+  for (const cmd of commands) {
+    const distance = levenshtein(input, cmd);
+    if (distance < minDistance && distance <= 2) {
+      minDistance = distance;
+      closest = cmd;
+    }
+  }
+  
+  return closest;
 }
 
 const program = new Command();
 
 program
   .name('clawget')
-  .description('Clawget CLI - Browse, buy, and manage agent skills & SOULs')
-  .version('1.1.0');
+  .description('Clawget CLI - Browse, buy, and manage agent skills')
+  .version('1.1.0')
+  .option('--json', 'Output in JSON format')
+  .configureHelp({
+    commandUsage: (cmd) => {
+      const usage = cmd.usage();
+      return `${usage}\n\nExamples:\n  $ clawget search "automation"\n  $ clawget buy web-scraper-pro --yes\n  $ clawget wallet --json\n\nGet help:\n  $ clawget --help\n  $ clawget <command> --help`;
+    }
+  });
 
-// ============================================================================
-// AUTH COMMAND
-// ============================================================================
-
+// Auth command
 program
   .command('auth <api-key>')
   .description('Save API key to ~/.clawget/config.json')
+  .addHelpText('after', `
+Examples:
+  $ clawget auth sk_abc123
+  $ CLAWGET_API_KEY=sk_abc123 clawget wallet  # Use without saving
+
+Get your API key:
+  https://clawget.com/dashboard/api-keys`)
   .action((apiKey: string) => {
-    saveConfig({ apiKey });
-    console.log('✅ API key saved to', CONFIG_FILE);
+    try {
+      saveConfig({ apiKey });
+      console.log(color('✅ API key saved to', colors.green), CONFIG_FILE);
+      console.log('\nTest it:');
+      console.log('  $ clawget wallet');
+    } catch (error: any) {
+      handleError(error);
+    }
   });
 
-// ============================================================================
-// REGISTER COMMAND
-// ============================================================================
-
+// Wallet command
 program
-  .command('register')
-  .description('Register a new agent and get API credentials')
-  .option('--name <name>', 'Agent name')
-  .option('--platform <platform>', 'Platform (default: sdk)', 'sdk')
-  .option('--json', 'Output in JSON format')
-  .action(async (options) => {
-    try {
-      console.log('🤖 Registering new agent...');
-      
-      const result = await Clawget.register({
-        name: options.name,
-        platform: options.platform
-      });
-      
-      if (options.json) {
-        formatOutput(result, true);
-      } else {
-        console.log('\n✅ Agent registered successfully!');
-        console.log('─────────────────────────────────');
-        console.log(`Agent ID: ${result.agentId}`);
-        console.log(`API Key: ${result.apiKey}`);
-        console.log(`Deposit Address: ${result.depositAddress}`);
-        console.log(`Chain: ${result.chain}`);
-        console.log(`Currency: ${result.currency}`);
-        console.log('\n⚠️  Save your API key - it will only be shown once!');
-        console.log('\n💡 Next steps:');
-        console.log(`   1. Save API key: clawget auth ${result.apiKey}`);
-        console.log(`   2. Fund wallet: Send ${result.currency} to ${result.depositAddress}`);
-        console.log('   3. Start buying skills!');
-      }
-      
-      // Optionally auto-save the API key
-      const readline = require('readline').createInterface({
-        input: process.stdin,
-        output: process.stdout
-      });
-      
-      if (!options.json) {
-        readline.question('\n💾 Save API key now? (y/n): ', (answer: string) => {
-          if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
-            saveConfig({ apiKey: result.apiKey });
-            console.log('✅ API key saved!');
-          }
-          readline.close();
-        });
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-// ============================================================================
-// AGENT COMMANDS
-// ============================================================================
-
-const agent = program
-  .command('agent')
-  .description('Agent identity and status commands');
-
-agent
-  .command('me')
-  .description('Get current agent info')
-  .option('--json', 'Output in JSON format')
-  .action(async (options) => {
-    try {
-      const client = getClient();
-      if (!client) return;
-      
-      const info = await client.agent.me();
-      
-      if (options.json) {
-        formatOutput(info, true);
-      } else {
-        console.log('🤖 Agent Info');
-        console.log('─────────────');
-        console.log(`ID: ${info.id}`);
-        console.log(`Agent ID: ${info.agentId}`);
-        console.log(`Name: ${info.name || 'N/A'}`);
-        console.log(`Status: ${info.status}`);
-        console.log(`Claimed: ${info.claimed ? 'Yes' : 'No'}`);
-        console.log(`Permissions: ${info.permissions.join(', ')}`);
-        if (info.wallet) {
-          console.log(`\n💰 Wallet:`);
-          console.log(`   Balance: ${info.wallet.balance}`);
-          console.log(`   Deposit: ${info.wallet.depositAddress || 'N/A'}`);
-        }
-        console.log(`\nCreated: ${new Date(info.createdAt).toLocaleDateString()}`);
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-agent
-  .command('status')
-  .description('Check agent registration status')
-  .option('--json', 'Output in JSON format')
-  .action(async (options) => {
-    try {
-      const client = getClient();
-      if (!client) return;
-      
-      const status = await client.agent.status();
-      
-      if (options.json) {
-        formatOutput(status, true);
-      } else {
-        console.log('📊 Agent Status');
-        console.log('───────────────');
-        console.log(`Registered: ${status.registered ? '✅ Yes' : '❌ No'}`);
-        console.log(`Claimed: ${status.claimed ? '✅ Yes' : '❌ No'}`);
-        console.log(`Has Balance: ${status.hasBalance ? '✅ Yes' : '❌ No'}`);
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-// ============================================================================
-// WALLET COMMANDS
-// ============================================================================
-
-const wallet = program
   .command('wallet')
-  .description('Wallet and balance management');
-
-wallet
-  .command('balance')
-  .description('Show wallet balance')
+  .description('Show wallet balance and deposit address')
   .option('--json', 'Output in JSON format')
+  .addHelpText('after', `
+Examples:
+  $ clawget wallet
+  $ clawget wallet --json
+  $ clawget wallet --json | jq '.balance'`)
   .action(async (options) => {
     try {
       const client = getClient();
-      if (!client) return;
-      
-      const balance = await client.wallet.balance();
+      const wallet = await client.wallet.balance();
       
       if (options.json) {
-        formatOutput(balance, true);
+        formatOutput(wallet, true);
       } else {
-        console.log('💰 Wallet Balance');
+        console.log(color('💰 Wallet Balance', colors.blue));
         console.log('─────────────────');
-        console.log(`Balance: ${balance.balance} ${balance.currency}`);
-        if (balance.availableBalance !== undefined) {
-          console.log(`Available: ${balance.availableBalance} ${balance.currency}`);
-        }
-        if (balance.pendingBalance !== undefined) {
-          console.log(`Pending: ${balance.pendingBalance} ${balance.currency}`);
-        }
-        if (balance.lockedBalance !== undefined) {
-          console.log(`Locked: ${balance.lockedBalance} ${balance.currency}`);
-        }
-        if (balance.totalEarned !== undefined) {
-          console.log(`\nTotal Earned: ${balance.totalEarned} ${balance.currency}`);
-        }
-        if (balance.totalSpent !== undefined) {
-          console.log(`Total Spent: ${balance.totalSpent} ${balance.currency}`);
-        }
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-wallet
-  .command('deposit-address')
-  .description('Get deposit address and instructions')
-  .option('--json', 'Output in JSON format')
-  .action(async (options) => {
-    try {
-      const client = getClient();
-      if (!client) return;
-      
-      const deposit = await client.wallet.deposit();
-      
-      if (options.json) {
-        formatOutput(deposit, true);
-      } else {
-        console.log('💳 Deposit Information');
-        console.log('──────────────────────');
-        console.log(`Address: ${deposit.address}`);
-        console.log(`Chain: ${deposit.chain}`);
-        console.log(`Currency: ${deposit.currency}`);
-        if (deposit.balance) {
-          console.log(`Current Balance: ${deposit.balance}`);
-        }
-        if (deposit.qrCode) {
-          console.log(`\nQR Code: ${deposit.qrCode}`);
-        }
-        console.log('\n⚠️  Important:');
-        console.log(`   • Send only ${deposit.currency} to this address`);
-        console.log(`   • Use ${deposit.chain} network`);
-        console.log('   • Funds may take a few minutes to appear');
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-wallet
-  .command('withdrawals')
-  .description('List withdrawal history')
-  .option('--json', 'Output in JSON format')
-  .action(async (options) => {
-    try {
-      const client = getClient();
-      if (!client) return;
-      
-      const result = await client.wallet.withdrawals();
-      
-      if (options.json) {
-        formatOutput(result, true);
-      } else {
-        console.log('💸 Withdrawal History');
-        console.log('─────────────────────');
-        
-        if (result.withdrawals.length === 0) {
-          console.log('No withdrawals yet');
-        } else {
-          result.withdrawals.forEach((w, i) => {
-            console.log(`\n${i + 1}. ${w.amount} ${w.currency}`);
-            console.log(`   Status: ${w.status}`);
-            console.log(`   Fee: ${w.fee} ${w.currency}`);
-            console.log(`   To: ${w.destinationAddress}`);
-            if (w.network) console.log(`   Network: ${w.network}`);
-            if (w.txHash) console.log(`   TX: ${w.txHash}`);
-            console.log(`   Date: ${new Date(w.createdAt).toLocaleDateString()}`);
-          });
-          
-          if (result.pagination) {
-            console.log(`\n📊 Page ${result.pagination.page} of ${result.pagination.totalPages}`);
+        console.log(`Balance: ${color(`${wallet.balance} ${wallet.currency}`, colors.green)}`);
+        if (wallet.depositAddress) {
+          console.log(`\n📥 Deposit Address`);
+          console.log(`   ${wallet.depositAddress}`);
+          if (wallet.depositChain) {
+            console.log(`   Chain: ${wallet.depositChain}`);
           }
         }
       }
     } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
+      handleError(error, options.json);
     }
   });
 
-// ============================================================================
-// SKILLS COMMANDS
-// ============================================================================
-
-const skills = program
-  .command('skills')
-  .description('Browse, buy, and manage skills');
-
-skills
-  .command('list')
-  .description('List available skills')
-  .option('--category <category>', 'Filter by category')
-  .option('--query <query>', 'Search query')
-  .option('--limit <limit>', 'Number of results', '10')
-  .option('--page <page>', 'Page number', '1')
+// Search command
+program
+  .command('search <query>')
+  .description('Search for skills')
   .option('--json', 'Output in JSON format')
-  .action(async (options) => {
+  .option('--category <category>', 'Filter by category')
+  .option('--limit <limit>', 'Number of results (default: 10)', '10')
+  .addHelpText('after', `
+Examples:
+  $ clawget search "automation"
+  $ clawget search "scraper" --category tools
+  $ clawget search "api" --limit 20 --json
+  $ clawget search "web" --json | jq '.skills[0]'
+
+Categories:
+  automation, tools, integrations, utilities, agents
+
+Related:
+  $ clawget buy <skill-id>    Purchase a skill
+  $ clawget list              List purchased skills`)
+  .action(async (query: string, options) => {
     try {
-      const client = getClient(false);
-      if (!client) {
-        console.error('❌ API key required for browsing skills');
-        process.exit(1);
-      }
+      const config = loadConfig();
+      const limit = parseInt(options.limit) || config.defaults?.search?.limit || 10;
+      const category = options.category || config.defaults?.search?.category;
       
+      const client = getClient(false); // Search doesn't require auth
       const response = await client.skills.list({
-        category: options.category,
-        query: options.query,
-        limit: parseInt(options.limit),
-        page: parseInt(options.page)
+        query,
+        category,
+        limit
       });
       
       if (options.json) {
         formatOutput(response, true);
       } else {
-        console.log('🔧 Available Skills');
-        console.log('───────────────────');
+        console.log(color(`🔍 Search results for "${query}":`, colors.blue));
+        console.log('─────────────────────────────────');
         
         if (response.skills.length === 0) {
-          console.log('No skills found');
+          console.log(color('No skills found', colors.dim));
+          console.log('\nTry:');
+          console.log('  - Broader search terms');
+          console.log('  - Different category with --category');
         } else {
           response.skills.forEach((skill, i) => {
-            console.log(`\n${i + 1}. ${skill.title}`);
-            console.log(`   Slug: ${skill.slug}`);
-            console.log(`   Price: ${skill.price} ${skill.currency}`);
-            console.log(`   Category: ${skill.categoryName}`);
+            const priceStr = skill.price === 0 ? color('FREE', colors.green) : color(`$${skill.price}`, colors.yellow);
+            const stars = '⭐'.repeat(Math.round(skill.rating));
+            
+            console.log(`\n${i + 1}. ${color(skill.title, colors.green)}`);
+            console.log(`   ID: ${color(skill.id, colors.dim)}`);
+            console.log(`   Price: ${priceStr} | Category: ${skill.categoryName} | Rating: ${stars} (${skill.rating})`);
             console.log(`   Creator: ${skill.creator}`);
-            console.log(`   Rating: ${'⭐'.repeat(Math.round(skill.rating))} (${skill.rating})`);
-            console.log(`   Description: ${skill.description.substring(0, 80)}...`);
+            console.log(`   ${color(skill.description.substring(0, 100), colors.dim)}${skill.description.length > 100 ? '...' : ''}`);
+            console.log(`   ${color(`$ clawget buy ${skill.id}`, colors.dim)}`);
           });
           
-          console.log(`\n📊 Showing ${response.skills.length} of ${response.pagination.total} results`);
-          if (response.pagination.hasMore) {
-            console.log(`   Next: clawget skills list --page ${response.pagination.page + 1}`);
+          console.log(color(`\n📊 Showing ${response.skills.length} of ${response.pagination.total} results`, colors.dim));
+          
+          if (response.pagination.total > response.skills.length) {
+            console.log(color(`    Use --limit ${response.pagination.total} to see all`, colors.dim));
           }
         }
       }
     } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
+      handleError(error, options.json);
     }
   });
 
-skills
-  .command('get <slug>')
-  .description('Get detailed information about a skill')
-  .option('--json', 'Output in JSON format')
-  .action(async (slug: string, options) => {
-    try {
-      const client = getClient(false);
-      if (!client) {
-        console.error('❌ API key required');
-        process.exit(1);
-      }
-      
-      const skill = await client.skills.get(slug);
-      
-      if (options.json) {
-        formatOutput(skill, true);
-      } else {
-        console.log(`📦 ${skill.title}`);
-        console.log('═'.repeat(skill.title.length + 3));
-        console.log(`\n${skill.description}`);
-        console.log(`\n💰 Price: ${skill.price} ${skill.currency}`);
-        console.log(`📁 Category: ${skill.categoryName}`);
-        console.log(`👤 Creator: ${skill.creator}`);
-        console.log(`⭐ Rating: ${skill.rating} (${skill.reviews} reviews)`);
-        console.log(`📥 Downloads: ${skill.downloads}`);
-        console.log(`🏷️  Tags: ${skill.tags.join(', ')}`);
-        if (skill.featured) console.log('🌟 Featured');
-        if (skill.staffPick) console.log('👍 Staff Pick');
-        console.log(`\n🔗 https://clawget.io/skills/${skill.slug}`);
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-skills
-  .command('buy <slug>')
+// Buy command
+program
+  .command('buy <skill-id>')
   .description('Purchase a skill')
-  .option('--auto-install', 'Automatically install after purchase')
   .option('--json', 'Output in JSON format')
-  .action(async (slug: string, options) => {
+  .option('--yes, -y', 'Skip confirmation prompt')
+  .option('--auto-install', 'Automatically install after purchase')
+  .addHelpText('after', `
+Examples:
+  $ clawget buy web-scraper-pro
+  $ clawget buy web-scraper-pro --yes
+  $ clawget buy web-scraper-pro --yes --auto-install --json
+
+Related:
+  $ clawget search <query>    Find skills to buy
+  $ clawget wallet            Check balance
+  $ clawget install <skill>   Install after purchase`)
+  .action(async (skillId: string, options) => {
     try {
       const client = getClient();
-      if (!client) return;
       
-      console.log(`💳 Purchasing skill ${slug}...`);
-      const result = await client.skills.buy({
-        skillId: slug,
-        autoInstall: options.autoInstall
-      });
-      
-      if (options.json) {
-        formatOutput(result, true);
-      } else {
-        console.log('✅ Purchase successful!');
-        console.log(`Purchase ID: ${result.purchaseId}`);
-        console.log(`License Key: ${result.licenseKey}`);
-        console.log(`Status: ${result.status}`);
-        if (result.message) {
-          console.log(`Message: ${result.message}`);
-        }
-        if (result.installedPath) {
-          console.log(`Installed to: ${result.installedPath}`);
-        }
+      if (!options.json && !options.yes) {
+        console.log(color(`💳 Purchasing skill: ${skillId}`, colors.blue));
+        console.log('\nConfirm? [y/N] ', { newline: false });
+        
+        // Simple confirmation (in production, use inquirer for better UX)
+        process.stdin.once('data', async (data) => {
+          const answer = data.toString().trim().toLowerCase();
+          if (answer !== 'y' && answer !== 'yes') {
+            console.log(color('❌ Purchase cancelled', colors.yellow));
+            process.exit(0);
+          }
+          
+          await executePurchase(skillId, options, client);
+        });
+        return;
       }
+      
+      await executePurchase(skillId, options, client);
     } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
+      handleError(error, options.json);
     }
   });
 
-skills
-  .command('create')
-  .description('Create a new skill listing')
-  .requiredOption('--name <name>', 'Skill name')
-  .requiredOption('--description <description>', 'Skill description')
-  .requiredOption('--price <price>', 'Price in USD')
-  .option('--category <category>', 'Category name or ID')
+async function executePurchase(skillId: string, options: any, client: Clawget) {
+  try {
+    if (!options.json) {
+      console.log(color('Processing purchase...', colors.dim));
+    }
+    
+    const result = await client.skills.buy({
+      skillId,
+      autoInstall: options.autoInstall
+    });
+    
+    if (options.json) {
+      formatOutput(result, true);
+    } else {
+      console.log(color('✅ Purchase successful!', colors.green));
+      console.log(`Purchase ID: ${result.purchaseId}`);
+      console.log(`License Key: ${result.licenseKey}`);
+      console.log(`Status: ${result.status}`);
+      if (result.message) {
+        console.log(`Message: ${result.message}`);
+      }
+      if (result.installedPath) {
+        console.log(color(`\n📦 Installed to: ${result.installedPath}`, colors.green));
+      } else {
+        console.log(color(`\n💡 Install with: clawget install ${skillId}`, colors.dim));
+      }
+    }
+  } catch (error: any) {
+    if (error.message.includes('insufficient balance')) {
+      if (!options.json) {
+        console.error(color('❌ Insufficient balance', colors.red));
+        console.error('\nFund your wallet:');
+        console.error('  $ clawget wallet  # Get deposit address');
+      }
+      process.exit(3);
+    }
+    handleError(error, options.json);
+  }
+}
+
+// Install command
+program
+  .command('install <skill-id>')
+  .description('Download and install a purchased skill')
   .option('--json', 'Output in JSON format')
+  .option('--dir <directory>', 'Installation directory (default: ./skills)')
+  .option('--force, -f', 'Overwrite if already exists')
+  .addHelpText('after', `
+Examples:
+  $ clawget install web-scraper-pro
+  $ clawget install web-scraper-pro --dir ./my-skills
+  $ clawget install web-scraper-pro --force --json
+
+Related:
+  $ clawget buy <skill>       Purchase before installing
+  $ clawget list              See all purchased skills`)
+  .action(async (skillId: string, options) => {
+    try {
+      const config = loadConfig();
+      const installDir = options.dir || config.defaults?.install?.dir || './skills';
+      const client = getClient();
+      
+      if (!options.json) {
+        console.log(color(`📦 Installing skill: ${skillId}...`, colors.blue));
+      }
+      
+      // Get skill details
+      const skill = await client.skills.get(skillId);
+      
+      // Check if already purchased
+      const purchases = await client.purchases.list();
+      const purchase = purchases.purchases.find(p => p.skill.id === skillId || p.skill.slug === skillId);
+      
+      if (!purchase) {
+        if (options.json) {
+          console.error(JSON.stringify({
+            error: true,
+            code: 'NOT_PURCHASED',
+            message: `Skill not purchased: ${skillId}`
+          }, null, 2));
+        } else {
+          console.error(color('❌ Skill not purchased', colors.red));
+          console.error(`\nBuy it first:`);
+          console.error(`  $ clawget buy ${skillId}`);
+        }
+        process.exit(4);
+      }
+      
+      // Create installation directory
+      const targetDir = path.join(process.cwd(), installDir, skill.slug);
+      
+      if (fs.existsSync(targetDir) && !options.force) {
+        if (options.json) {
+          console.error(JSON.stringify({
+            error: true,
+            code: 'ALREADY_EXISTS',
+            message: `Directory already exists: ${targetDir}`
+          }, null, 2));
+        } else {
+          console.error(color('❌ Directory already exists', colors.red));
+          console.error(`Path: ${targetDir}`);
+          console.error(`\nUse --force to overwrite`);
+        }
+        process.exit(6);
+      }
+      
+      // Create or clean directory
+      if (fs.existsSync(targetDir)) {
+        fs.rmSync(targetDir, { recursive: true });
+      }
+      fs.mkdirSync(targetDir, { recursive: true });
+      
+      // Create SKILL.md with license info
+      const skillMd = `# ${skill.title}
+
+${skill.description}
+
+## License
+- Purchase ID: ${purchase.id}
+- License Key: ${purchase.licenseKey || 'N/A'}
+- Purchased: ${new Date(purchase.purchasedAt).toLocaleDateString()}
+
+## Details
+- Category: ${skill.category}
+- Creator: ${skill.creator}
+- Rating: ${skill.rating}
+- Price: ${skill.price} ${skill.currency}
+
+## Installation
+Skill installed via Clawget CLI on ${new Date().toLocaleDateString()}
+`;
+      
+      fs.writeFileSync(path.join(targetDir, 'SKILL.md'), skillMd);
+      
+      // Create README
+      const readme = `# ${skill.title}
+
+${skill.description}
+
+For full documentation and updates, visit: https://clawget.com/skills/${skill.slug}
+`;
+      
+      fs.writeFileSync(path.join(targetDir, 'README.md'), readme);
+      
+      if (options.json) {
+        formatOutput({
+          installed: true,
+          path: targetDir,
+          skill: skill.title,
+          licenseKey: purchase.licenseKey
+        }, true);
+      } else {
+        console.log(color('✅ Skill installed successfully!', colors.green));
+        console.log(`📁 Location: ${targetDir}`);
+        console.log(`🔑 License: ${purchase.licenseKey || 'N/A'}`);
+        console.log(color('\n📝 Next steps:', colors.dim));
+        console.log(`   cd ${targetDir}`);
+        console.log('   cat SKILL.md');
+      }
+    } catch (error: any) {
+      handleError(error, options.json);
+    }
+  });
+
+// List purchases command
+program
+  .command('list')
+  .description('List your purchased skills')
+  .option('--json', 'Output in JSON format')
+  .option('--page <page>', 'Page number (default: 1)', '1')
+  .option('--limit <limit>', 'Results per page (default: 20)', '20')
+  .addHelpText('after', `
+Examples:
+  $ clawget list
+  $ clawget list --page 2 --limit 50
+  $ clawget list --json | jq '.purchases[].skill.name'
+
+Related:
+  $ clawget install <skill>   Install a purchased skill
+  $ clawget search <query>    Find more skills`)
   .action(async (options) => {
     try {
       const client = getClient();
-      if (!client) return;
+      const response = await client.purchases.list({
+        page: parseInt(options.page),
+        limit: parseInt(options.limit)
+      });
       
-      console.log(`📤 Creating skill: ${options.name}...`);
+      if (options.json) {
+        formatOutput(response, true);
+      } else {
+        console.log(color('📚 Your Purchased Skills', colors.blue));
+        console.log('─────────────────────────');
+        
+        if (response.purchases.length === 0) {
+          console.log(color('No purchases yet', colors.dim));
+          console.log('\nBrowse skills:');
+          console.log('  $ clawget search "automation"');
+        } else {
+          response.purchases.forEach((purchase, i) => {
+            const priceStr = purchase.amount === 0 ? color('FREE', colors.green) : color(`$${purchase.amount}`, colors.yellow);
+            const statusColor = purchase.status === 'completed' ? colors.green : colors.yellow;
+            
+            console.log(`\n${i + 1}. ${color(purchase.skill.name, colors.green)}`);
+            console.log(`   ID: ${color(purchase.skill.id, colors.dim)}`);
+            console.log(`   Price: ${priceStr} | Status: ${color(purchase.status, statusColor)}`);
+            console.log(`   Purchased: ${new Date(purchase.purchasedAt).toLocaleDateString()}`);
+            if (purchase.licenseKey) {
+              console.log(`   License: ${purchase.licenseKey}`);
+            }
+            console.log(`   ${color(`$ clawget install ${purchase.skill.id}`, colors.dim)}`);
+          });
+          
+          console.log(color(`\n📊 Showing ${response.purchases.length} of ${response.pagination.total} purchases`, colors.dim));
+          
+          if (response.pagination.hasMore) {
+            console.log(color(`    Next page: clawget list --page ${response.pagination.page + 1}`, colors.dim));
+          }
+        }
+      }
+    } catch (error: any) {
+      handleError(error, options.json);
+    }
+  });
+
+// Publish command
+program
+  .command('publish <path>')
+  .description('Publish a skill to the marketplace')
+  .option('--json', 'Output in JSON format')
+  .option('--price <price>', 'Skill price (default: 0 for free)')
+  .option('--category <category>', 'Category name or ID')
+  .addHelpText('after', `
+Examples:
+  $ clawget publish ./my-skill/
+  $ clawget publish ./my-skill/ --price 9.99
+  $ clawget publish ./my-skill/ --price 0 --category automation
+  $ clawget publish ./my-skill/ --json
+
+Required files in skill directory:
+  - SKILL.md    (Documentation with title and description)
+
+Get started:
+  https://clawget.com/docs/publishing`)
+  .action(async (skillPath: string, options) => {
+    try {
+      const client = getClient();
+      
+      // Read SKILL.md from the path
+      const skillMdPath = path.join(skillPath, 'SKILL.md');
+      
+      if (!fs.existsSync(skillMdPath)) {
+        if (options.json) {
+          console.error(JSON.stringify({
+            error: true,
+            code: 'MISSING_FILES',
+            message: `SKILL.md not found in ${skillPath}`
+          }, null, 2));
+        } else {
+          console.error(color('❌ SKILL.md not found', colors.red));
+          console.error(`Path: ${skillMdPath}`);
+          console.error('\nCreate a SKILL.md file with:');
+          console.error('  # Skill Title');
+          console.error('  ## Description');
+          console.error('  Your skill description here...');
+        }
+        process.exit(9);
+      }
+      
+      const skillMd = fs.readFileSync(skillMdPath, 'utf-8');
+      
+      // Parse SKILL.md for metadata
+      const titleMatch = skillMd.match(/^#\s+(.+)$/m);
+      const descMatch = skillMd.match(/^##\s+Description\s*\n+([\s\S]+?)(?=\n##|\n$)/m);
+      
+      if (!titleMatch) {
+        if (options.json) {
+          console.error(JSON.stringify({
+            error: true,
+            code: 'INVALID_MANIFEST',
+            message: 'Could not find skill title in SKILL.md (should start with # Title)'
+          }, null, 2));
+        } else {
+          console.error(color('❌ Could not find skill title', colors.red));
+          console.error('SKILL.md should start with: # Your Skill Title');
+        }
+        process.exit(8);
+      }
+      
+      const title = titleMatch[1].trim();
+      const description = descMatch ? descMatch[1].trim() : 'No description provided';
+      const price = options.price ? parseFloat(options.price) : 0;
+      
+      if (!options.json) {
+        console.log(color(`📤 Publishing skill: ${title}...`, colors.blue));
+      }
       
       const result = await client.skills.create({
-        name: options.name,
-        description: options.description,
-        price: parseFloat(options.price),
+        name: title,
+        description,
+        price,
         category: options.category || 'automation'
       });
       
       if (options.json) {
         formatOutput(result, true);
       } else {
-        console.log('✅ Skill created successfully!');
+        console.log(color('✅ Skill published successfully!', colors.green));
         console.log(`ID: ${result.id}`);
         console.log(`Slug: ${result.slug}`);
         console.log(`Title: ${result.title}`);
         console.log(`Price: ${result.price} ${result.currency}`);
         console.log(`Status: ${result.status}`);
-        console.log(`\n🌐 View at: https://clawget.io/skills/${result.slug}`);
+        console.log(color(`\n🌐 View at: https://clawget.com/skills/${result.slug}`, colors.blue));
       }
     } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
+      handleError(error, options.json);
     }
   });
 
-// ============================================================================
-// SOULS COMMANDS
-// ============================================================================
-
-const souls = program
-  .command('souls')
-  .description('Browse, buy, and create agent SOULs');
-
-souls
-  .command('list')
-  .description('List available SOULs')
-  .option('--category <category>', 'Filter by category')
-  .option('--tags <tags>', 'Filter by tags (comma-separated)')
-  .option('--limit <limit>', 'Number of results', '20')
-  .option('--json', 'Output in JSON format')
-  .action(async (options) => {
-    try {
-      const client = getClient(false);
-      if (!client) {
-        console.error('❌ API key required');
-        process.exit(1);
-      }
-      
-      const response = await client.souls.list({
-        category: options.category,
-        tags: options.tags,
-        limit: parseInt(options.limit)
-      });
-      
-      if (options.json) {
-        formatOutput(response, true);
-      } else {
-        console.log('🧠 Available SOULs');
-        console.log('──────────────────');
-        
-        if (response.souls.length === 0) {
-          console.log('No SOULs found');
-        } else {
-          response.souls.forEach((soul, i) => {
-            console.log(`\n${i + 1}. ${soul.name}`);
-            console.log(`   Slug: ${soul.slug}`);
-            console.log(`   Price: ${soul.price}`);
-            console.log(`   Author: ${soul.author}`);
-            console.log(`   Downloads: ${soul.downloads}`);
-            if (soul.category) console.log(`   Category: ${soul.category}`);
-            if (soul.tags.length > 0) console.log(`   Tags: ${soul.tags.join(', ')}`);
-            console.log(`   ${soul.description}`);
-          });
-          
-          console.log(`\n📊 Showing ${response.souls.length} of ${response.pagination.total} SOULs`);
-        }
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
+// Handle unknown commands with suggestions
+program.on('command:*', (operands) => {
+  const unknownCommand = operands[0];
+  const availableCommands = program.commands.map(cmd => cmd.name());
+  
+  console.error(color(`❌ Unknown command: ${unknownCommand}`, colors.red));
+  
+  const suggestion = suggestCommand(unknownCommand, availableCommands);
+  if (suggestion) {
+    console.error(color(`\nDid you mean:`, colors.yellow));
+    console.error(`  clawget ${suggestion}`);
+  }
+  
+  console.error('\nAvailable commands:');
+  availableCommands.forEach(cmd => {
+    console.error(`  ${cmd}`);
   });
-
-souls
-  .command('get <slug>')
-  .description('Get a SOUL by slug (includes full SOUL.md content)')
-  .option('--json', 'Output in JSON format')
-  .option('--save <path>', 'Save SOUL.md to file')
-  .action(async (slug: string, options) => {
-    try {
-      const client = getClient(false);
-      if (!client) {
-        console.error('❌ API key required');
-        process.exit(1);
-      }
-      
-      const soul = await client.souls.get(slug);
-      
-      if (options.save && soul.content) {
-        fs.writeFileSync(options.save, soul.content);
-        console.log(`✅ SOUL.md saved to ${options.save}`);
-      }
-      
-      if (options.json) {
-        formatOutput(soul, true);
-      } else {
-        console.log(`🧠 ${soul.name}`);
-        console.log('═'.repeat(soul.name.length + 3));
-        console.log(`\n${soul.description}`);
-        console.log(`\n💰 Price: ${soul.price}`);
-        console.log(`👤 Author: ${soul.author}`);
-        console.log(`📥 Downloads: ${soul.downloads}`);
-        if (soul.category) console.log(`📁 Category: ${soul.category}`);
-        if (soul.tags.length > 0) console.log(`🏷️  Tags: ${soul.tags.join(', ')}`);
-        
-        if (soul.content && !options.save) {
-          console.log('\n📄 SOUL Content:');
-          console.log('─'.repeat(50));
-          console.log(soul.content.substring(0, 500));
-          if (soul.content.length > 500) {
-            console.log('\n... (truncated)');
-            console.log(`\n💡 Use --save SOUL.md to save the full content`);
-          }
-        }
-        
-        console.log(`\n🔗 https://clawget.io/souls/${soul.slug}`);
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-souls
-  .command('create')
-  .description('Create and list a new SOUL')
-  .requiredOption('--name <name>', 'SOUL name')
-  .requiredOption('--description <description>', 'SOUL description')
-  .requiredOption('--content-file <path>', 'Path to SOUL.md file')
-  .option('--price <price>', 'Price (default: 0 for free)', '0')
-  .option('--category <category>', 'Category')
-  .option('--tags <tags>', 'Tags (comma-separated)')
-  .option('--json', 'Output in JSON format')
-  .action(async (options) => {
-    try {
-      const client = getClient();
-      if (!client) return;
-      
-      // Read SOUL.md content
-      if (!fs.existsSync(options.contentFile)) {
-        console.error(`❌ File not found: ${options.contentFile}`);
-        process.exit(1);
-      }
-      
-      const content = fs.readFileSync(options.contentFile, 'utf-8');
-      
-      console.log(`🧠 Creating SOUL: ${options.name}...`);
-      
-      const result = await client.souls.create({
-        name: options.name,
-        description: options.description,
-        content,
-        price: parseFloat(options.price),
-        category: options.category,
-        tags: options.tags ? options.tags.split(',').map((t: string) => t.trim()) : []
-      });
-      
-      if (options.json) {
-        formatOutput(result, true);
-      } else {
-        console.log('✅ SOUL created successfully!');
-        console.log(`ID: ${result.id}`);
-        console.log(`Slug: ${result.slug}`);
-        console.log(`Name: ${result.name}`);
-        console.log(`Price: ${result.price}`);
-        console.log(`Author: ${result.author}`);
-        if (result.category) console.log(`Category: ${result.category}`);
-        if (result.tags.length > 0) console.log(`Tags: ${result.tags.join(', ')}`);
-        console.log(`\n🌐 View at: https://clawget.io/souls/${result.slug}`);
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-// ============================================================================
-// PURCHASES COMMAND
-// ============================================================================
-
-const purchases = program
-  .command('purchases')
-  .description('View purchase history');
-
-purchases
-  .command('list')
-  .description('List your purchased skills')
-  .option('--page <page>', 'Page number', '1')
-  .option('--limit <limit>', 'Results per page', '20')
-  .option('--json', 'Output in JSON format')
-  .action(async (options) => {
-    try {
-      const client = getClient();
-      if (!client) return;
-      
-      const response = await client.purchases.list({
-        page: parseInt(options.page),
-        limit: parseInt(options.limit)
-      });
-      
-      if (options.json) {
-        formatOutput(response, true);
-      } else {
-        console.log('📚 Your Purchased Skills');
-        console.log('────────────────────────');
-        
-        if (response.purchases.length === 0) {
-          console.log('No purchases yet');
-        } else {
-          response.purchases.forEach((purchase, i) => {
-            console.log(`\n${i + 1}. ${purchase.skill.name}`);
-            console.log(`   Slug: ${purchase.skill.slug}`);
-            console.log(`   Price: ${purchase.amount} ${purchase.currency}`);
-            console.log(`   Status: ${purchase.status}`);
-            console.log(`   Purchased: ${new Date(purchase.purchasedAt).toLocaleDateString()}`);
-            if (purchase.licenseKey) {
-              console.log(`   License: ${purchase.licenseKey}`);
-            }
-          });
-          
-          console.log(`\n📊 Showing ${response.purchases.length} of ${response.pagination.total} purchases`);
-          if (response.pagination.hasMore) {
-            console.log(`   Next: clawget purchases list --page ${response.pagination.page + 1}`);
-          }
-        }
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-// ============================================================================
-// CATEGORIES COMMAND
-// ============================================================================
-
-program
-  .command('categories')
-  .description('List all marketplace categories')
-  .option('--json', 'Output in JSON format')
-  .action(async (options) => {
-    try {
-      const client = getClient(false);
-      if (!client) {
-        console.error('❌ API key required');
-        process.exit(1);
-      }
-      
-      const response = await client.categories.list();
-      
-      if (options.json) {
-        formatOutput(response, true);
-      } else {
-        console.log('📁 Marketplace Categories');
-        console.log('─────────────────────────');
-        
-        if (response.categories.length === 0) {
-          console.log('No categories found');
-        } else {
-          response.categories.forEach((cat, i) => {
-            console.log(`\n${i + 1}. ${cat.name} (${cat.slug})`);
-            if (cat.description) console.log(`   ${cat.description}`);
-            if (cat.listingCount !== undefined) {
-              console.log(`   ${cat.listingCount} listings`);
-            }
-          });
-          
-          console.log(`\n📊 Total: ${response.categories.length} categories`);
-        }
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-// ============================================================================
-// REVIEWS COMMANDS
-// ============================================================================
-
-const reviews = program
-  .command('reviews')
-  .description('Read and write skill reviews');
-
-reviews
-  .command('list <skill-slug>')
-  .description('List reviews for a skill')
-  .option('--page <page>', 'Page number', '1')
-  .option('--limit <limit>', 'Results per page', '10')
-  .option('--json', 'Output in JSON format')
-  .action(async (skillSlug: string, options) => {
-    try {
-      const client = getClient(false);
-      if (!client) {
-        console.error('❌ API key required');
-        process.exit(1);
-      }
-      
-      const response = await client.reviews.list(skillSlug, {
-        page: parseInt(options.page),
-        limit: parseInt(options.limit)
-      });
-      
-      if (options.json) {
-        formatOutput(response, true);
-      } else {
-        console.log(`⭐ Reviews for ${skillSlug}`);
-        console.log('─────────────────────────');
-        console.log(`Average Rating: ${response.stats.avgRating.toFixed(1)} (${response.stats.totalReviews} reviews)`);
-        
-        if (response.reviews.length === 0) {
-          console.log('\nNo reviews yet');
-        } else {
-          response.reviews.forEach((review, i) => {
-            console.log(`\n${i + 1}. ${'⭐'.repeat(review.rating)} (${review.rating}/5)`);
-            if (review.title) console.log(`   "${review.title}"`);
-            console.log(`   ${review.body}`);
-            console.log(`   — ${review.user.displayName} • ${new Date(review.createdAt).toLocaleDateString()}`);
-            console.log(`   👍 ${review.helpful} helpful`);
-          });
-          
-          console.log(`\n📊 Page ${response.pagination.page} of ${Math.ceil(response.pagination.total / response.pagination.limit)}`);
-        }
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-reviews
-  .command('create <skill-slug>')
-  .description('Write a review for a purchased skill')
-  .requiredOption('--rating <rating>', 'Rating (1-5)')
-  .requiredOption('--body <body>', 'Review text')
-  .option('--title <title>', 'Review title')
-  .option('--json', 'Output in JSON format')
-  .action(async (skillSlug: string, options) => {
-    try {
-      const client = getClient();
-      if (!client) return;
-      
-      const rating = parseInt(options.rating);
-      if (rating < 1 || rating > 5) {
-        console.error('❌ Rating must be between 1 and 5');
-        process.exit(1);
-      }
-      
-      console.log(`📝 Posting review for ${skillSlug}...`);
-      
-      const result = await client.reviews.create({
-        skillId: skillSlug,
-        rating,
-        title: options.title,
-        body: options.body
-      });
-      
-      if (options.json) {
-        formatOutput(result, true);
-      } else {
-        console.log('✅ Review posted successfully!');
-        console.log(`Rating: ${'⭐'.repeat(rating)}`);
-        if (result.title) console.log(`Title: ${result.title}`);
-        console.log(`Body: ${result.body}`);
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-// ============================================================================
-// LICENSES COMMAND
-// ============================================================================
-
-program
-  .command('license-validate <key>')
-  .description('Validate a license key')
-  .option('--json', 'Output in JSON format')
-  .action(async (key: string, options) => {
-    try {
-      const client = getClient();
-      if (!client) return;
-      
-      const result = await client.licenses.validate(key);
-      
-      if (options.json) {
-        formatOutput(result, true);
-      } else {
-        if (result.valid && result.license) {
-          console.log('✅ License Valid');
-          console.log('────────────────');
-          console.log(`Key: ${result.license.key}`);
-          console.log(`Type: ${result.license.type}`);
-          console.log(`Status: ${result.license.status}`);
-          console.log(`Skill: ${result.license.skill.name}`);
-          if (result.license.expiresAt) {
-            console.log(`Expires: ${new Date(result.license.expiresAt).toLocaleDateString()}`);
-          }
-        } else {
-          console.log('❌ License Invalid');
-          if (result.error) {
-            console.log(`Error: ${result.error}`);
-          }
-        }
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-// ============================================================================
-// LEGACY COMMANDS (for backward compatibility)
-// ============================================================================
-
-// Legacy: clawget wallet (redirect to wallet balance)
-program
-  .command('wallet-legacy', { hidden: true })
-  .description('Show wallet balance and deposit address')
-  .option('--json', 'Output in JSON format')
-  .action(async (options) => {
-    console.log('💡 Tip: Use "clawget wallet balance" or "clawget wallet deposit-address"');
-    try {
-      const client = getClient();
-      if (!client) return;
-      
-      const balance = await client.wallet.balance();
-      const deposit = await client.wallet.deposit();
-      
-      if (options.json) {
-        formatOutput({ balance, deposit }, true);
-      } else {
-        console.log('💰 Wallet');
-        console.log('─────────');
-        console.log(`Balance: ${balance.balance} ${balance.currency}`);
-        console.log(`Deposit Address: ${deposit.address}`);
-        console.log(`Chain: ${deposit.chain}`);
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-// Legacy: clawget search (redirect to skills list)
-program
-  .command('search <query>')
-  .description('Search for skills')
-  .option('--category <category>', 'Filter by category')
-  .option('--limit <limit>', 'Number of results', '10')
-  .option('--json', 'Output in JSON format')
-  .action(async (query: string, options) => {
-    console.log('💡 Tip: Use "clawget skills list --query <query>"');
-    try {
-      const client = getClient(false);
-      if (!client) {
-        console.error('❌ API key required');
-        process.exit(1);
-      }
-      
-      const response = await client.skills.list({
-        query,
-        category: options.category,
-        limit: parseInt(options.limit)
-      });
-      
-      if (options.json) {
-        formatOutput(response, true);
-      } else {
-        console.log(`🔍 Search results for "${query}":`);
-        console.log('─────────────────────────────────');
-        
-        if (response.skills.length === 0) {
-          console.log('No skills found');
-        } else {
-          response.skills.forEach((skill, i) => {
-            console.log(`\n${i + 1}. ${skill.title}`);
-            console.log(`   Slug: ${skill.slug}`);
-            console.log(`   Price: ${skill.price} ${skill.currency}`);
-            console.log(`   Category: ${skill.categoryName}`);
-            console.log(`   Rating: ${'⭐'.repeat(Math.round(skill.rating))}`);
-          });
-          
-          console.log(`\n📊 Showing ${response.skills.length} of ${response.pagination.total} results`);
-        }
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-// Legacy: clawget buy (redirect to skills buy)
-program
-  .command('buy <slug>')
-  .description('Purchase a skill')
-  .option('--auto-install', 'Automatically install after purchase')
-  .option('--json', 'Output in JSON format')
-  .action(async (slug: string, options) => {
-    console.log('💡 Tip: Use "clawget skills buy <slug>"');
-    try {
-      const client = getClient();
-      if (!client) return;
-      
-      const result = await client.skills.buy({
-        skillId: slug,
-        autoInstall: options.autoInstall
-      });
-      
-      if (options.json) {
-        formatOutput(result, true);
-      } else {
-        console.log('✅ Purchase successful!');
-        console.log(`License: ${result.licenseKey}`);
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-// Legacy: clawget list (redirect to purchases list)
-program
-  .command('list')
-  .description('List your purchased skills')
-  .option('--page <page>', 'Page number', '1')
-  .option('--limit <limit>', 'Results per page', '20')
-  .option('--json', 'Output in JSON format')
-  .action(async (options) => {
-    console.log('💡 Tip: Use "clawget purchases list"');
-    try {
-      const client = getClient();
-      if (!client) return;
-      
-      const response = await client.purchases.list({
-        page: parseInt(options.page),
-        limit: parseInt(options.limit)
-      });
-      
-      if (options.json) {
-        formatOutput(response, true);
-      } else {
-        console.log('📚 Your Purchases');
-        console.log('─────────────────');
-        
-        if (response.purchases.length === 0) {
-          console.log('No purchases yet');
-        } else {
-          response.purchases.forEach((p, i) => {
-            console.log(`${i + 1}. ${p.skill.name} - ${p.amount} ${p.currency}`);
-          });
-        }
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
+  console.error('\nRun "clawget --help" for more information');
+  
+  process.exit(1);
+});
 
 program.parse();
