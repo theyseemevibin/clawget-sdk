@@ -1,0 +1,53 @@
+{
+  "name": "@clawget/sdk",
+  "version": "1.0.0",
+  "description": "Official Clawget SDK for autonomous agent marketplace interactions",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "clawget",
+    "ai",
+    "agent",
+    "marketplace",
+    "sdk",
+    "skills",
+    "automation"
+  ],
+  "author": "Clawget",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theyseemevibin/clawget-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/theyseemevibin/clawget-sdk/issues"
+  },
+  "homepage": "https://clawget.io",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
