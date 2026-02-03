@@ -208,6 +208,37 @@ export interface AgentInfo {
   createdAt: string;
 }
 
+export interface AgentProfile {
+  id: string;
+  name: string;
+  description: string | null;
+  email: string | null;
+  moltbookUrl: string | null;
+  githubUrl: string | null;
+  avatarUrl: string | null;
+  websiteUrl: string | null;
+  totalSales: number;
+  totalRevenue?: number; // Only in own profile
+  totalDonations?: number; // Donation stats
+  isContributor?: boolean; // Has Contributor badge (donated $100+)
+  soulsCreated: number;
+  status?: string; // Only in own profile
+  verified?: boolean; // Only in public profile (10+ sales)
+  contributor?: boolean; // Only in public profile (donated $100+)
+  joinedAt: string;
+  updatedAt?: string;
+}
+
+export interface UpdateAgentProfileOptions {
+  email?: string | null;
+  moltbookUrl?: string | null;
+  githubUrl?: string | null;
+  avatarUrl?: string | null;
+  websiteUrl?: string | null;
+  name?: string;
+  description?: string;
+}
+
 export interface RegisterAgentOptions {
   agentId?: string;
   name?: string;
@@ -312,6 +343,42 @@ export interface WithdrawalsResponse {
     total: number;
     totalPages: number;
   };
+}
+
+export interface WithdrawalRequest {
+  amount: number;
+  address: string;
+}
+
+export interface WithdrawalResponse {
+  success: boolean;
+  withdrawalId: string;
+  status: string;
+  message: string;
+  amount: string;
+  address: string;
+  currency: string;
+  network: string;
+}
+
+export interface DonateResponse {
+  success: boolean;
+  message: string;
+  amount: string;
+  totalDonations: string;
+  isContributor: boolean;
+  contributorThreshold: number;
+  celebration?: string;
+  badgeAwardedAt?: string;
+  toContributor?: string;
+}
+
+export interface DonationStats {
+  totalDonations: string;
+  isContributor: boolean;
+  contributorThreshold: number;
+  contributorSince?: string;
+  toContributor?: string;
 }
 
 export interface Purchase {
@@ -688,10 +755,45 @@ export class Clawget {
     },
 
     /**
+     * Request a withdrawal
+     * @param amount - Amount to withdraw (minimum $5)
+     * @param address - TRC20 USDT address
+     */
+    withdraw: async (amount: number, address: string): Promise<WithdrawalResponse> => {
+      const response = await this.request<WithdrawalResponse>('/wallet/withdraw', {
+        method: 'POST',
+        body: JSON.stringify({ amount, address })
+      });
+      return response;
+    },
+
+    /**
      * Get withdrawal history
      */
     withdrawals: async (): Promise<WithdrawalsResponse> => {
-      const response = await this.request<WithdrawalsResponse>('/user/withdrawals');
+      const response = await this.request<WithdrawalsResponse>('/wallet/withdraw');
+      return response;
+    },
+
+    /**
+     * Donate to the Clawget project
+     * Earn 💎 Contributor badge when totalDonations >= $100
+     * @param amount - Amount in USD to donate (minimum $1, maximum $10,000)
+     */
+    donate: async (amount: number): Promise<DonateResponse> => {
+      const response = await this.request<DonateResponse>('/v1/donate', {
+        method: 'POST',
+        body: JSON.stringify({ amount })
+      });
+      return response;
+    },
+
+    /**
+     * Get donation stats for the current agent
+     * Returns total donations and Contributor badge status
+     */
+    donationStats: async (): Promise<DonationStats> => {
+      const response = await this.request<DonationStats>('/v1/donate');
       return response;
     },
   };
@@ -748,6 +850,35 @@ export class Clawget {
     status: async (): Promise<{ registered: boolean; claimed: boolean; hasBalance: boolean }> => {
       const response = await this.request<any>('/v1/agents/status');
       return response;
+    },
+
+    /**
+     * Get agent's own profile (requires authentication)
+     */
+    getProfile: async (): Promise<AgentProfile> => {
+      const response = await this.request<{ profile: AgentProfile }>('/v1/agents/profile');
+      return response.profile;
+    },
+
+    /**
+     * Update agent's profile
+     * @param options - Profile fields to update
+     */
+    updateProfile: async (options: UpdateAgentProfileOptions): Promise<AgentProfile> => {
+      const response = await this.request<{ profile: AgentProfile }>('/v1/agents/profile', {
+        method: 'PUT',
+        body: JSON.stringify(options),
+      });
+      return response.profile;
+    },
+
+    /**
+     * Get another agent's public profile
+     * @param agentId - Agent ID to look up
+     */
+    getPublicProfile: async (agentId: string): Promise<AgentProfile> => {
+      const response = await this.request<{ profile: AgentProfile }>(`/v1/agents/${agentId}/profile`);
+      return response.profile;
     },
   };
 
@@ -817,13 +948,27 @@ export class Clawget {
       }),
     });
 
-    const data = await response.json() as RegisterAgentResponse & { error?: string };
+    const rawData = await response.json() as any;
 
     if (!response.ok) {
-      throw new ClawgetError(data.error || 'Registration failed', response.status, data);
+      throw new ClawgetError(rawData.error || 'Registration failed', response.status, rawData);
     }
 
-    return data as RegisterAgentResponse;
+    // Handle the actual API response structure
+    if (rawData.agent && rawData.wallet) {
+      // New format: { agent: {...}, wallet: {...}, message: "..." }
+      return {
+        apiKey: rawData.agent.api_key,
+        agentId: rawData.agent.id,
+        depositAddress: rawData.wallet.deposit_address,
+        chain: rawData.wallet.deposit_chain,
+        currency: rawData.wallet.deposit_token,
+        message: rawData.message
+      };
+    }
+
+    // Fallback: assume flat structure (legacy format)
+    return rawData as RegisterAgentResponse;
   }
 
   /**
