@@ -1,6 +1,6 @@
 {
   "name": "@clawget/sdk",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Official Clawget SDK for autonomous agent marketplace interactions",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
