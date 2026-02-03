@@ -29,8 +29,11 @@ const colors = {
 
 const noColor = process.env.NO_COLOR !== undefined;
 
+// Track if --json flag is active globally
+let jsonMode = false;
+
 function color(text: string, colorCode: string): string {
-  if (noColor) return text;
+  if (noColor || jsonMode) return text;
   return `${colorCode}${text}${colors.reset}`;
 }
 
@@ -141,8 +144,15 @@ const program = new Command();
 program
   .name('clawget')
   .description('Clawget CLI - Browse, buy, and manage agent skills')
-  .version('1.1.0')
+  .version('1.1.6')
   .option('--json', 'Output in JSON format')
+  .hook('preAction', (thisCommand, actionCommand) => {
+    // Set global json mode flag before any action runs
+    const opts = actionCommand.opts();
+    if (opts.json) {
+      jsonMode = true;
+    }
+  })
   .configureHelp({
     commandUsage: (cmd) => {
       const usage = cmd.usage();
@@ -637,7 +647,7 @@ Related:
     }
   });
 
-// Publish command
+// Publish skill command
 program
   .command('publish <path>')
   .description('Publish a skill to the marketplace')
@@ -726,6 +736,123 @@ Get started:
         console.log(`Price: ${result.price} ${result.currency}`);
         console.log(`Status: ${result.status}`);
         console.log(color(`\n🌐 View at: https://clawget.io/skills/${result.slug}`, colors.blue));
+      }
+    } catch (error: any) {
+      handleError(error, options.json);
+    }
+  });
+
+// Publish SOUL command
+program
+  .command('publish-soul <path>')
+  .description('Publish a SOUL to the marketplace')
+  .option('--json', 'Output in JSON format')
+  .option('--price <price>', 'SOUL price (default: 0 for free)')
+  .option('--category <category>', 'Category (e.g., personas, workflows)')
+  .option('--tags <tags>', 'Comma-separated tags')
+  .addHelpText('after', `
+Examples:
+  $ clawget publish-soul ./my-soul.md
+  $ clawget publish-soul ./agent-soul.md --price 5.00
+  $ clawget publish-soul ./soul.md --category personas --tags "ai,assistant"
+  $ clawget publish-soul ./soul.md --json
+
+Required:
+  - SOUL.md file with markdown content
+
+The SOUL.md file should contain:
+  # SOUL Name
+  
+  ## Description
+  Brief description of your SOUL
+  
+  ## Content
+  Full SOUL definition, personality traits, etc.
+
+Get started:
+  https://clawget.io/docs/publishing-souls`)
+  .action(async (soulPath: string, options) => {
+    try {
+      const client = getClient();
+      
+      // Check if path is a file or directory
+      let soulMdPath = soulPath;
+      if (fs.statSync(soulPath).isDirectory()) {
+        soulMdPath = path.join(soulPath, 'SOUL.md');
+      }
+      
+      if (!fs.existsSync(soulMdPath)) {
+        if (options.json) {
+          console.error(JSON.stringify({
+            error: true,
+            code: 'MISSING_FILE',
+            message: `SOUL.md not found at ${soulMdPath}`
+          }, null, 2));
+        } else {
+          console.error(color('❌ SOUL.md not found', colors.red));
+          console.error(`Path: ${soulMdPath}`);
+          console.error('\nCreate a SOUL.md file with:');
+          console.error('  # SOUL Name');
+          console.error('  ## Description');
+          console.error('  Your SOUL description');
+          console.error('  ## Content');
+          console.error('  Full SOUL definition...');
+        }
+        process.exit(9);
+      }
+      
+      // Read the entire SOUL.md content
+      const soulContent = fs.readFileSync(soulMdPath, 'utf-8');
+      
+      // Parse SOUL.md for metadata
+      const titleMatch = soulContent.match(/^#\s+(.+)$/m);
+      const descMatch = soulContent.match(/^##\s+Description\s*\n+([\s\S]+?)(?=\n##|\n$)/m);
+      
+      if (!titleMatch) {
+        if (options.json) {
+          console.error(JSON.stringify({
+            error: true,
+            code: 'INVALID_FORMAT',
+            message: 'Could not find SOUL title in SOUL.md (should start with # Title)'
+          }, null, 2));
+        } else {
+          console.error(color('❌ Could not find SOUL title', colors.red));
+          console.error('SOUL.md should start with: # Your SOUL Name');
+        }
+        process.exit(8);
+      }
+      
+      const title = titleMatch[1].trim();
+      const description = descMatch ? descMatch[1].trim() : 'No description provided';
+      const price = options.price ? parseFloat(options.price) : 0;
+      const tags = options.tags ? options.tags.split(',').map((t: string) => t.trim()) : [];
+      
+      if (!options.json) {
+        console.log(color(`📤 Publishing SOUL: ${title}...`, colors.blue));
+        console.log(color(`   Content size: ${soulContent.length} characters`, colors.dim));
+      }
+      
+      // Upload SOUL with full content
+      const result = await client.souls.create({
+        name: title,
+        description,
+        content: soulContent, // Pass entire file content - SDK handles JSON escaping
+        price,
+        category: options.category,
+        tags
+      });
+      
+      if (options.json) {
+        formatOutput(result, true);
+      } else {
+        console.log(color('✅ SOUL published successfully!', colors.green));
+        console.log(`ID: ${result.id}`);
+        console.log(`Slug: ${result.slug}`);
+        console.log(`Name: ${result.name}`);
+        console.log(`Price: ${result.price} USDC`);
+        console.log(`Category: ${result.category || 'None'}`);
+        console.log(`Tags: ${result.tags.join(', ') || 'None'}`);
+        console.log(color(`\n🌐 View at: https://clawget.io/souls/${result.slug}`, colors.blue));
       }
     } catch (error: any) {
       handleError(error, options.json);
