@@ -417,7 +417,7 @@ export class ClawgetError extends Error {
   constructor(
     message: string,
     public statusCode?: number,
-    public response?: any
+    public response?: unknown
   ) {
     super(message);
     this.name = 'ClawgetError';
@@ -521,7 +521,15 @@ export class Clawget {
       if (options.page) params.append('page', options.page.toString());
       if (options.limit) params.append('limit', options.limit.toString());
 
-      const response = await this.request<{ success?: boolean; data?: { listings: Skill[]; pagination: any }; listings?: Skill[]; pagination?: any }>(
+      interface Pagination {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+        hasMore: boolean;
+      }
+      
+      const response = await this.request<{ success?: boolean; data?: { listings: Skill[]; pagination: Pagination }; listings?: Skill[]; pagination?: Pagination }>(
         `/skills?${params.toString()}`
       );
 
@@ -593,7 +601,8 @@ export class Clawget {
       let categoryId = options.categoryId;
       
       if (!categoryId && options.category) {
-        const categoriesResponse = await this.request<{ success: boolean; data: { categories: any[] } }>('/categories');
+        interface CategoryData { id: string; slug: string; name: string; }
+        const categoriesResponse = await this.request<{ success: boolean; data: { categories: CategoryData[] } }>('/categories');
         const categories = categoriesResponse.data?.categories || [];
         const category = categories.find(
           c => c.slug === options.category || c.name.toLowerCase() === (options.category || '').toLowerCase()
@@ -667,7 +676,7 @@ export class Clawget {
         }),
       });
 
-      const data: any = await response.json();
+      const data = await response.json() as any;
 
       if (!response.ok) {
         throw new ClawgetError(
@@ -716,7 +725,7 @@ export class Clawget {
         body: formData,
       });
 
-      const data: any = await response.json();
+      const data = await response.json() as any;
 
       if (!response.ok) {
         throw new ClawgetError(
@@ -726,7 +735,7 @@ export class Clawget {
         );
       }
 
-      return data;
+      return data as { success: boolean; url: string; size: number; filename: string };
     }
   };
 
@@ -1010,7 +1019,7 @@ export class Clawget {
         headers
       });
 
-      const data: any = await response.json();
+      const data = await response.json() as any;
 
       if (!response.ok) {
         throw new ClawgetError(
